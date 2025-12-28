@@ -1,6 +1,7 @@
-using System.Net.Sockets;
 using System.Collections.Concurrent;
 using Terminal.Gui;
+using DHM.Views;
+using DHM.Service;
 
 class Program
 {
@@ -75,7 +76,7 @@ class Program
             Height = Dim.Fill() - 3
         };
 
-        var menuList = new ListView(new[] { "Port Scan", "Settings", "About", "Quit" })
+        var menuList = new ListView(new[] { "Port Scan", "Wi-Fi Scan", "Settings", "About", "Quit" })
         {
             X = 0,
             Y = 0,
@@ -83,17 +84,23 @@ class Program
             Height = Dim.Fill()
         };
 
-        menuList.SelectedItemChanged += (args) =>
+        menuList.OpenSelectedItem += (args) =>
         {
             switch (args.Item)
             {
-                case 1: // Settings
+                case 0: // Port Scan
+                    _ = Task.Run(ScanPorts);
+                    break;
+                case 1: // Wi-Fi Scan
+                    WifiScanView.Show();
+                    break;
+                case 2: // Settings
                     ShowSettingsDialog();
                     break;
-                case 2: // About
+                case 3: // About
                     MessageBox.Query("About", "DHM - Device Health Monitor\n\nPort scanning utility with TUI", "OK");
                     break;
-                case 3: // Quit
+                case 4: // Quit
                     _running = false;
                     Application.RequestStop();
                     break;
@@ -111,11 +118,50 @@ class Program
             Height = Dim.Fill() - 3
         };
 
+        // 로컬 네트워크 정보
+        var networkInfo = NetworkService.GetLocalNetworkInfo();
+        var localIpText = string.Join(" | ", networkInfo.Select(n => $"{n.Name}: {n.IP}"));
+        if (string.IsNullOrEmpty(localIpText))
+            localIpText = "No network interface found";
+
+        var localIpLabel = new Label($"Local: {localIpText}")
+        {
+            X = 0,
+            Y = 0,
+            Width = Dim.Fill()
+        };
+
+        // 현재 연결된 Wi-Fi 정보
+        var currentWifi = WifiService.GetCurrentConnection();
+        var wifiLabel = new Label($"Wi-Fi: {currentWifi}")
+        {
+            X = 0,
+            Y = 1,
+            Width = Dim.Fill(),
+            ColorScheme = new ColorScheme
+            {
+                Normal = Application.Driver.MakeAttribute(Color.BrightGreen, Color.Black)
+            }
+        };
+
+        // DHCP 정보
+        var dhcpInfo = NetworkService.GetDhcpInfo("en0");
+        var dhcpLabel = new Label($"DHCP: {dhcpInfo}")
+        {
+            X = 0,
+            Y = 2,
+            Width = Dim.Fill(),
+            ColorScheme = new ColorScheme
+            {
+                Normal = Application.Driver.MakeAttribute(Color.BrightCyan, Color.Black)
+            }
+        };
+
         // 정보 라벨
         _infoLabel = new Label($"Target: {_targetIp} | Ports: {_startPort}-{_endPort} | Refresh: {_refreshInterval}s")
         {
             X = 0,
-            Y = 0,
+            Y = 3,
             Width = Dim.Fill()
         };
 
@@ -123,12 +169,12 @@ class Program
         _portListView = new ListView(_portItems)
         {
             X = 0,
-            Y = 2,
+            Y = 5,
             Width = Dim.Fill(),
-            Height = Dim.Fill() - 2
+            Height = Dim.Fill() - 5
         };
 
-        contentFrame.Add(_infoLabel, _portListView);
+        contentFrame.Add(localIpLabel, wifiLabel, dhcpLabel, _infoLabel, _portListView);
 
         // 하단 상태바
         var statusFrame = new FrameView("Status")
@@ -284,55 +330,33 @@ class Program
             _progressBar.Fraction = 0;
         });
 
-        var newStatus = new ConcurrentDictionary<int, bool>();
-        var totalPorts = _endPort - _startPort + 1;
-        var scannedCount = 0;
-
-        var semaphore = new SemaphoreSlim(_throttleLimit);
-        var tasks = new List<Task>();
-
-        for (int port = _startPort; port <= _endPort; port++)
+        var scanner = new PortScanService
         {
-            int p = port;
-            tasks.Add(Task.Run(async () =>
+            Timeout = _timeout,
+            ThrottleLimit = _throttleLimit
+        };
+
+        scanner.OnProgress += (scanned, total) =>
+        {
+            _scanProgress = (int)((double)scanned / total * 100);
+            Application.MainLoop?.Invoke(() =>
             {
-                await semaphore.WaitAsync();
-                try
-                {
-                    using var tcp = new TcpClient();
-                    var connectTask = tcp.ConnectAsync(_targetIp, p);
-                    var completed = await Task.WhenAny(connectTask, Task.Delay(_timeout)) == connectTask;
+                _progressBar.Fraction = (float)scanned / total;
+                _statusLabel.Text = $"Scanning... {_scanProgress}%";
+            });
+        };
 
-                    if (completed && tcp.Connected)
-                    {
-                        newStatus[p] = true;
-                    }
-                }
-                catch { }
-                finally
-                {
-                    semaphore.Release();
-                    var count = Interlocked.Increment(ref scannedCount);
-                    _scanProgress = (int)((double)count / totalPorts * 100);
-
-                    Application.MainLoop?.Invoke(() =>
-                    {
-                        _progressBar.Fraction = (float)count / totalPorts;
-                        _statusLabel.Text = $"Scanning... {_scanProgress}%";
-                    });
-                }
-            }));
-        }
-
-        await Task.WhenAll(tasks);
-        _portStatus = newStatus;
-
-        // UI 업데이트
-        Application.MainLoop?.Invoke(() =>
+        scanner.OnComplete += (portStatus) =>
         {
-            UpdatePortList();
-            _statusLabel.Text = $"Scan complete. Found {_portStatus.Count} open ports.";
-        });
+            _portStatus = portStatus;
+            Application.MainLoop?.Invoke(() =>
+            {
+                UpdatePortList();
+                _statusLabel.Text = $"Scan complete. Found {_portStatus.Count} open ports.";
+            });
+        };
+
+        await scanner.ScanAsync(_targetIp, _startPort, _endPort);
     }
 
     static void UpdatePortList()
@@ -349,7 +373,7 @@ class Program
         {
             foreach (var port in openPorts)
             {
-                var portName = GetPortName(port.Key);
+                var portName = PortScanService.GetPortName(port.Key);
                 var nameStr = string.IsNullOrEmpty(portName) ? "" : $"  ({portName})";
                 _portItems.Add($"  ● Port {port.Key,5} - OPEN{nameStr}");
             }
@@ -357,28 +381,4 @@ class Program
 
         _portListView.SetSource(_portItems);
     }
-
-    static string GetPortName(int port) => port switch
-    {
-        20 => "FTP-DATA",
-        21 => "FTP",
-        22 => "SSH",
-        23 => "Telnet",
-        25 => "SMTP",
-        53 => "DNS",
-        80 => "HTTP",
-        110 => "POP3",
-        143 => "IMAP",
-        443 => "HTTPS",
-        445 => "SMB",
-        993 => "IMAPS",
-        995 => "POP3S",
-        1433 => "MSSQL",
-        3306 => "MySQL",
-        3389 => "RDP",
-        5432 => "PostgreSQL",
-        6379 => "Redis",
-        8080 => "HTTP-Alt",
-        _ => ""
-    };
 }

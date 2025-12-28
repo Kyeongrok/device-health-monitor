@@ -25,4 +25,9 @@
     <PackageReference Include="Terminal.Gui" Version="1.19.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Service\" />
+    <Folder Include="Views\" />
+  </ItemGroup>
+
 </Project>
