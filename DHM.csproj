@@ -2,9 +2,23 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- dotnet tool 설정 -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>dhm</ToolCommandName>
+
+    <!-- 패키지 정보 -->
+    <PackageId>dhm</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>kyeongrok</Authors>
+    <Description>Device Health Monitor - Terminal-based port scanning utility</Description>
+    <PackageProjectUrl>https://github.com/kyeongrok/device-health-monitor</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/kyeongrok/device-health-monitor</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>port-scanner;network;cli;tui;monitoring</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
