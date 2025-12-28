@@ -76,7 +76,7 @@ class Program
             Height = Dim.Fill() - 3
         };
 
-        var menuList = new ListView(new[] { "Port Scan", "Wi-Fi Scan", "Settings", "About", "Quit" })
+        var menuList = new ListView(new[] { "Port Scan", "IP Scan", "Wi-Fi Scan", "Settings", "About", "Quit" })
         {
             X = 0,
             Y = 0,
@@ -91,16 +91,19 @@ class Program
                 case 0: // Port Scan
                     _ = Task.Run(ScanPorts);
                     break;
-                case 1: // Wi-Fi Scan
+                case 1: // IP Scan
+                    IpScanView.Show();
+                    break;
+                case 2: // Wi-Fi Scan
                     WifiScanView.Show();
                     break;
-                case 2: // Settings
+                case 3: // Settings
                     ShowSettingsDialog();
                     break;
-                case 3: // About
-                    MessageBox.Query("About", "DHM - Device Health Monitor\n\nPort scanning utility with TUI", "OK");
+                case 4: // About
+                    MessageBox.Query("About", "DHM - Device Health Monitor\n\nNetwork scanning utility with TUI", "OK");
                     break;
-                case 4: // Quit
+                case 5: // Quit
                     _running = false;
                     Application.RequestStop();
                     break;
