@@ -70,6 +70,8 @@ public class WifiScanView
 
         dialog.Add(connectedLabel, statusLabel, listView, refreshBtn, closeBtn);
 
+        refreshBtn.SetFocus();
+
         // 초기 스캔
         _ = Task.Run(() =>
         {

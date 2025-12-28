@@ -115,6 +115,7 @@ public class PortScanView
             _statusLabel, _progressBar, _portListView, closeBtn
         );
 
+        scanBtn.SetFocus();
         Application.Run(dialog);
     }
 

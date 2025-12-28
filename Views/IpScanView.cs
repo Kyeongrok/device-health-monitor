@@ -5,6 +5,8 @@ namespace DHM.Views;
 
 public class IpScanView
 {
+    private static List<HostInfo> _foundHosts = new();
+
     public static void Show()
     {
         // 현재 IP에서 네트워크 대역 추출
@@ -61,12 +63,23 @@ public class IpScanView
         };
 
         // 상태 라벨
-        var statusLabel = new Label("Ready. Press Scan to start.")
+        var statusLabel = new Label("Ready. Press Scan to start. (Enter: View details)")
         {
             X = 1,
             Y = 1,
             Width = Dim.Fill()
         };
+
+        // 색상 스킴 정의
+        var inProgressColor = new ColorScheme
+        {
+            Normal = Application.Driver.MakeAttribute(Color.BrightGreen, Color.Black)
+        };
+        var completeColor = new ColorScheme
+        {
+            Normal = Application.Driver.MakeAttribute(Color.BrightCyan, Color.Black)
+        };
+        var defaultColor = statusLabel.ColorScheme;
 
         // 프로그레스 바
         var progressBar = new ProgressBar()
@@ -78,12 +91,23 @@ public class IpScanView
         };
 
         // 결과 리스트
-        var resultList = new ListView()
+        var results = new List<string>();
+        var resultList = new ListView(results)
         {
             X = 0,
             Y = 4,
             Width = Dim.Fill(),
             Height = Dim.Fill() - 6
+        };
+
+        // 엔터 누르면 상세 정보 표시
+        resultList.OpenSelectedItem += (args) =>
+        {
+            var index = args.Item - 2; // 헤더 2줄 제외
+            if (index >= 0 && index < _foundHosts.Count)
+            {
+                ShowHostDetail(_foundHosts[index]);
+            }
         };
 
         // 버튼
@@ -110,14 +134,14 @@ public class IpScanView
             if (end > 254) end = 254;
             if (start > end) (start, end) = (end, start);
 
-            statusLabel.Text = "Scanning...";
+            statusLabel.Text = "⏳ In Progress...";
+            statusLabel.ColorScheme = inProgressColor;
             progressBar.Fraction = 0;
 
-            var results = new List<string>
-            {
-                "  IP Address        Hostname                    RTT    MAC Address        Ports",
-                "  " + new string('-', 75)
-            };
+            results.Clear();
+            _foundHosts.Clear();
+            results.Add("  IP Address        Hostname                 RTT    MAC");
+            results.Add("  " + new string('-', 60));
             resultList.SetSource(results);
 
             var foundCount = 0;
@@ -135,7 +159,8 @@ public class IpScanView
                     Application.MainLoop?.Invoke(() =>
                     {
                         progressBar.Fraction = (float)scanned / total;
-                        statusLabel.Text = $"Scanning {network}.{start}-{end}... {scanned}/{total} (Found: {foundCount})";
+                        statusLabel.Text = $"⏳ In Progress - {network}.{start}-{end}... {scanned}/{total} (Found: {foundCount})";
+                        statusLabel.ColorScheme = inProgressColor;
                     });
                 };
 
@@ -145,14 +170,16 @@ public class IpScanView
                     Interlocked.Increment(ref foundCount);
                     Application.MainLoop?.Invoke(() =>
                     {
-                        var ip = host.IpAddress.PadRight(16);
-                        var hostname = (host.Hostname ?? "").PadRight(26);
-                        if (hostname.Length > 26) hostname = hostname.Substring(0, 23) + "...";
-                        var rtt = $"{host.ResponseTime}ms".PadRight(6);
-                        var mac = (host.MacAddress ?? "").PadRight(18);
-                        var ports = host.GetPortsDisplay();
+                        _foundHosts.Add(host);
 
-                        results.Add($"  {ip}  {hostname}  {rtt} {mac} {ports}");
+                        var ip = host.IpAddress.PadRight(16);
+                        var hostname = (host.Hostname ?? "").PadRight(22);
+                        if (hostname.Length > 22) hostname = hostname.Substring(0, 19) + "...";
+                        var rtt = $"{host.ResponseTime}ms".PadRight(6);
+                        var mac = host.MacAddress ?? "";
+
+                        var portCount = host.OpenPorts.Count > 0 ? $" [{host.OpenPorts.Count}ports]" : "";
+                        results.Add($"  {ip}  {hostname} {rtt} {mac}{portCount}");
                         resultList.SetSource(results);
                     });
                 };
@@ -161,7 +188,8 @@ public class IpScanView
                 {
                     Application.MainLoop?.Invoke(() =>
                     {
-                        statusLabel.Text = $"Scan complete. Found {hosts.Count} hosts.";
+                        statusLabel.Text = $"✓ Complete - Found {hosts.Count} hosts. (Enter: View details)";
+                        statusLabel.ColorScheme = completeColor;
                         progressBar.Fraction = 1;
                         isScanning = false;
                     });
@@ -180,6 +208,88 @@ public class IpScanView
             resultList, closeBtn
         );
 
+        scanBtn.SetFocus();
         Application.Run(dialog);
+    }
+
+    private static void ShowHostDetail(HostInfo host)
+    {
+        var detailDialog = new Dialog("Host Details", 60, 18);
+
+        var ipLabel = new Label($"IP Address: {host.IpAddress}")
+        {
+            X = 1,
+            Y = 1
+        };
+
+        var hostnameLabel = new Label($"Hostname:   {host.Hostname ?? "(unknown)"}")
+        {
+            X = 1,
+            Y = 2
+        };
+
+        var macLabel = new Label($"MAC:        {host.MacAddress ?? "(unknown)"}")
+        {
+            X = 1,
+            Y = 3
+        };
+
+        var rttLabel = new Label($"RTT:        {host.ResponseTime}ms")
+        {
+            X = 1,
+            Y = 4
+        };
+
+        var portsTitle = new Label("Open Ports:")
+        {
+            X = 1,
+            Y = 6
+        };
+
+        var portsList = new List<string>();
+        if (host.OpenPorts.Count == 0)
+        {
+            portsList.Add("  No open ports detected");
+        }
+        else
+        {
+            foreach (var port in host.OpenPorts)
+            {
+                var portName = PortScanService.GetPortName(port);
+                var nameStr = string.IsNullOrEmpty(portName) ? "" : $" ({portName})";
+                portsList.Add($"  {port}{nameStr}");
+            }
+        }
+
+        var portsListView = new ListView(portsList)
+        {
+            X = 1,
+            Y = 7,
+            Width = Dim.Fill() - 2,
+            Height = 5
+        };
+
+        var portScanBtn = new Button("Port Scan")
+        {
+            X = Pos.Center() - 12,
+            Y = Pos.AnchorEnd(1)
+        };
+
+        portScanBtn.Clicked += () =>
+        {
+            Application.RequestStop();
+            PortScanView.Show(host.IpAddress, 1, 1000);
+        };
+
+        var closeBtn = new Button("Close")
+        {
+            X = Pos.Center() + 3,
+            Y = Pos.AnchorEnd(1)
+        };
+
+        closeBtn.Clicked += () => Application.RequestStop();
+
+        detailDialog.Add(ipLabel, hostnameLabel, macLabel, rttLabel, portsTitle, portsListView, portScanBtn, closeBtn);
+        Application.Run(detailDialog);
     }
 }
