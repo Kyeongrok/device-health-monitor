@@ -30,10 +30,6 @@ class Program
         {
             new MenuBarItem("_File", new MenuItem[]
             {
-                new MenuItem("_Port Scan", "", () => PortScanView.Show()),
-                new MenuItem("_IP Scan", "", () => IpScanView.Show()),
-                new MenuItem("_Wi-Fi Scan", "", () => WifiScanView.Show()),
-                new MenuItem("", "", null), // separator
                 new MenuItem("_Quit", "Q", () => Application.RequestStop())
             }),
             new MenuBarItem("_Help", new MenuItem[]
@@ -77,6 +73,16 @@ class Program
                 case 1: IpScanView.Show(); break;
                 case 2: WifiScanView.Show(); break;
                 case 3: Application.RequestStop(); break;
+            }
+        };
+
+        // 최상단에서 Up 누르면 메뉴바로 이동
+        menuList.KeyPress += (e) =>
+        {
+            if (e.KeyEvent.Key == Key.CursorUp && menuList.SelectedItem == 0)
+            {
+                menuBar.OpenMenu();
+                e.Handled = true;
             }
         };
 
